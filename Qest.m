@@ -76,6 +76,16 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
     else
         error('drho is not an linearly independent set')
     end
+    %check trace drho
+    checkdisp('check trace of drho',p.Results.check)
+    for i=1:length(drho)
+        if trace(drho{i})==0
+            checkdisp('correct',p.Results.check)
+        else
+            warning('trace of drho is not zero')
+        end
+    end
+   
     %check finished
 
 
