@@ -11,6 +11,11 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
     addParameter(p,'seedset',[]); 
     addParameter(p,'Conjugate',0);
     addParameter(p,'check',0); % show the check information or not
+    
+    addParameter(p,'tol',1e-10);  %5/31 update
+    addParameter(p,'itermax',1000);
+    addParameter(p,'ob_iteration',0);
+    addParameter(p,'weight',eye(length(drho)));
 
     parse(p,varargin{:});       % analyze the arguments, if exist, update对输入变量进行解析，如果检测到前面的变量被赋值，则更新变量取值
 
@@ -50,7 +55,7 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
     if all(eig(rho)>-1e-10)
         checkdisp('correct',p.Results.check)
     else
-        error('rho is not positive definite')
+        warning('rho is not positive definite')
     end
     %check tr(rho)=1
     checkdisp('check trace of rho is 1',p.Results.check)
@@ -71,7 +76,7 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
     else
         error('drho is not an linearly independent set')
     end
-%check finished
+    %check finished
 
 
     if ~isnan(p.Results.seed)
@@ -86,15 +91,22 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
         algorithm=2; % 2 means use conjuagte gradient decent
     end
 
+    %input itermax and tol
+    itermax=p.Results.itermax;
+    tol=p.Results.tol;
+
+    %Set the weight
+    W=p.Results.weight;
+
     if p.Results.k~=0 % means there is k in the input
         K=p.Results.k;
         check_K(K,setting,p.Results.check); %check if K is valid
 
         if p.Results.tensor~=0 %the tensor case
             M=p.Results.tensor; %M is the number of tensor product
-            [povm,ob]=Qest1(rho,drho,algorithm,'k',K,'tensor',M);
+            [povm,ob]=Qest1(rho,drho,tol,itermax,algorithm,W,'k',K,'tensor',M);
         else
-            [povm,ob]=Qest1(rho,drho,algorithm,'k',K);
+            [povm,ob]=Qest1(rho,drho,tol,itermax,algorithm,W,'k',K);
         end
     elseif ~isnan(p.Results.klim) % means there is klim in the input
         Klim=p.Results.klim;
@@ -104,7 +116,7 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
         oblist=zeros(1,Klen);
         for i=1:Klen
             K=Klim(i);
-            [povmtemp,obtemp]=Qest1(rho,drho,algorithm,'k',K);
+            [povmtemp,obtemp]=Qest1(rho,drho,tol,itermax,algorithm,W,'k',K);
             povm{i}=povmtemp;
             oblist(i)=obtemp;
             plot(Klim,oblist);
@@ -113,11 +125,11 @@ function [povm,ob] = Qest(setting,rho,drho,varargin)
     elseif iscell(p.Results.povm) % means there is given povm as initialization
         ini_povm=p.Results.povm;
         k=length(ini_povm);
-        [povm,ob]=Qest1(rho,drho,algorithm,'k',3,'povm',ini_povm);
+        [povm,ob]=Qest1(rho,drho,tol,itermax,algorithm,W,'k',3,'povm',ini_povm);
     end
 end
 
-function [povm,ob]=Qest1(rho,drho,algorithm,varargin)
+function [povm,ob]=Qest1(rho,drho,tol,itermax,algorithm,W,varargin)
 
     
     N=length(drho); % number of parameters equals to the number of derivatives.
@@ -143,24 +155,29 @@ function [povm,ob]=Qest1(rho,drho,algorithm,varargin)
     else % povm is given
         meop=Povm_meop(p.Results.povm);
     end
+
     % In this program, meop means measurement operator(Karus operator),
     % povm means positive operator-valued measurement
 
-    [ob,FIinv,dis,prob]=meop_ob(rho,drho,meop); % calculate the current objective function,
-    currentob=ob;                             % also find the embedded
-                                              % inverse of FI, d and prob.
+    [ob,FIinv,dis,prob]=meop_ob(rho,drho,meop,W); % calculate the current objective function,
+    currentob=ob;                               % also find the embedded
+                                                % inverse of FI, d and prob.
 
-    itermax=1000;
-    tol=1e-8; % Stopping rule 1, the tolerance
+    %itermax=1000;
+    %tol=1e-8; % Stopping rule 1, the tolerance
     if algorithm==1
         for t=1:itermax
-            [meop,ob,FIinv,dis,prob]=iteration(rho,drho,meop,FIinv,dis,prob);
+            [meop,ob,FIinv,dis,prob]=iteration(rho,drho,meop,FIinv,dis,prob,W);
             %fprintf('Trace of inverse of FI : %10.7f \n',ob);
             if abs(currentob-ob)<tol
                 fprintf('Stop at iteration :%3.d when delta<%g \n',t,tol);
                 break
             end
             currentob=ob;
+
+            if t==itermax % check if achieve the maximal iteration
+                fprintf('Stop at maximal iteration: %3.d \n',t);
+            end
         end
     elseif algorithm==2
         oldH=cell(1,K);
@@ -170,9 +187,9 @@ function [povm,ob]=Qest1(rho,drho,algorithm,varargin)
             oldP{k}=zeros(d,d);
         end
         for t=1:itermax
-            [meop,ob,FIinv,dis,prob,newH,newP]=iteration(rho,drho,meop,FIinv,dis,prob,oldH,oldP);
+            [meop,ob,FIinv,dis,prob,newH,newP]=iteration(rho,drho,meop,FIinv,dis,prob,W,oldH,oldP);
             %fprintf('Trace of inverse of FI : %10.7f \n',ob);
-            if abs(currentob-ob)<tol
+            if (abs(currentob-ob)<tol)&&(currentob>ob) 
                 fprintf('Stop at iteration :%3.d when delta<%g \n',t,tol);
                 break
             end

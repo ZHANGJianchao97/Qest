@@ -1,4 +1,4 @@
-function [ob,FIinv,d,prob] = meop_ob(rho,drho,meop)
+function [ob,FIinv,d,prob] = meop_ob(rho,drho,meop,W)
 % get the current objective function
 % get the current FIinv, d, prob to prepare for next stage
     numPo=length(meop);
@@ -41,10 +41,11 @@ function [ob,FIinv,d,prob] = meop_ob(rho,drho,meop)
     end
     rankFI=rank(FI);
     if rankFI<numSt
+        disp(FI);
         error('Information matrix is Singular.')
     end
     FIinv=inv(FI);
-    ob=trace(FIinv);
+    ob=trace(FI\W);
 end
 
 

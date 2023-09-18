@@ -1,31 +1,42 @@
-function [meop,ob,FIinv,d,prob,varargout]=iteration(rho,drho,meop,FIinv,d,prob,varargin)
+function [meop,ob,FIinv,d,prob,varargout]=iteration(rho,drho,meop,FIinv,d,prob,W,varargin)
         
     alpha=[1e+6 1e+4 1e+2 1 0.1 0.01 1e-4 1e-6];
     lalpha=length(alpha);
     min=1e+10;
     if isempty(varargin)
+        position1=1;
         for i=1:lalpha
-            [~,ob,~,~,~]=iteration_step(rho,drho,meop,FIinv,d,prob,alpha(i));
+            [~,ob,~,~,~]=iteration_step(rho,drho,meop,FIinv,d,prob,alpha(i),W);
             if ob<min
-                position=i;
+                position1=i;
                 min=ob;
             end
         end
-        step=alpha(position);
-        [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step);
+        step=alpha(position1);
+        [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step,W);
     else %conjugate gradient case
         oldH=varargin{1};
         oldP=varargin{2};
-        [meop,~,newH,newP]=cal_povm3(rho,drho,meop,FIinv,d,prob,0.1,oldH,oldP);
+        
+%         position1=1;
+%         for i=1:lalpha
+%             [~,ob,~,~,~,~,~]=cal_povm3(rho,drho,meop,FIinv,d,prob,alpha(i),oldH,oldP,W);
+%             if ob<min
+%                 position1=i;
+%                 min=ob;
+%             end
+%         end
+%         step=alpha(position1);
+%         [meop,ob,FIinv,d,prob,newH,newP]=cal_povm3(rho,drho,meop,FIinv,d,prob,step,oldH,oldP,W);
+       [meop,ob,FIinv,d,prob,newH,newP]=cal_povm3(rho,drho,meop,FIinv,d,prob,0.1,oldH,oldP,W);
         varargout{1}=newH;
         varargout{2}=newP;
-        [ob,FIinv,d,prob]=meop_ob(rho,drho,meop);
     end
 
-    %[newmeop,newpovm,newH,newP]=cal_povm3(meop,numPo,numSt,dim,rho,rhop,FIinv,prob,d,alpha,oldH,oldP)
+
 end
 
-function [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step)
+function [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step,W)
 %ITERATION Summary of this function goes here
 %   Detailed explanation goes here
     
@@ -36,8 +47,7 @@ function [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step)
     alpha=step; %step size
 
     Rho=cell(1,numSt); %Rho{i}=rho^i=\sum_j J^{-1}_{ji}\rho_j
-    W=eye(numSt);
-    FIinv=sqrt(W)*FIinv*sqrt(W);  %using the weight
+
     for i=1:numSt
         Rho{i}=zeros(dim);
         for j=1:numSt
@@ -56,7 +66,10 @@ function [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step)
     for k=1:numPo
         Y{k}=zeros(dim,dim);
         for i=1:numSt
-            Y{k}=Y{k}+2*Rho{i}*l(i,k)-rho*l(i,k)*l(i,k);
+            %Y{k}=Y{k}+2*Rho{i}*l(i,k)-rho*l(i,k)*l(i,k);
+            for j=1:numSt
+                Y{k}=Y{k}+(2*Rho{i}*l(j,k)-rho*l(i,k)*l(j,k))*W(i,j);
+            end
         end
     end
     
@@ -89,22 +102,22 @@ function [meop,ob,FIinv,d,prob]=iteration_step(rho,drho,meop,FIinv,d,prob,step)
     end    
 
     meop=newmeop;
-    [ob,FIinv,d,prob]=meop_ob(rho,drho,meop);
+    [ob,FIinv,d,prob]=meop_ob(rho,drho,meop,W);
 end
 
-function [newmeop,newpovm,newH,newP]=cal_povm3(rho,rhop,meop,FIinv,d,prob,alpha,oldH,oldP)
-% Conjugate gradient  [meop,ob,FIinv,d,prob]=iteration_conjugate_step(rho,drho,meop,FIinv,d,prob,alpha(i))
+function [newmeop,ob,FIinv,d,prob,newH,newP]=cal_povm3(rho,drho,meop,FIinv,d,prob,alpha,oldH,oldP,W)  %The congujate gradient
+% Conjugate gradient 
 
     dim=length(rho); % qubit case default
     numPo=length(meop);
-    numSt=length(rhop);
+    numSt=length(drho);
     betamethod=1;
     Rho=cell(1,numSt); %Rho{i}=rho^i
     
     for i=1:numSt
         Rho{i}=zeros(dim);
         for j=1:numSt
-            Rho{i}=Rho{i}+FIinv(j,i)*rhop{j};
+            Rho{i}=Rho{i}+FIinv(j,i)*drho{j};
         end
     end
     D=zeros(numSt,numPo);
@@ -182,7 +195,8 @@ function [newmeop,newpovm,newH,newP]=cal_povm3(rho,rhop,meop,FIinv,d,prob,alpha,
     for k=1:numPo
         newmeop{k}=newmeop{k}*Gis;
         newpovm{k}=newmeop{k}'*newmeop{k};
-    end    
+    end     
+    [ob,FIinv,d,prob]=meop_ob(rho,drho,newmeop,W);
 end  % Conjugate gradient
 
 
